@@ -1,0 +1,26 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# EF Core
+*.db
+
+# Node / frontend (added in Phase 6)
+node_modules/
+dist/
+.vite/
+
+# Secrets — never commit real connection strings, signing keys, or NAV credentials
+.env
+*.pfx
+*.p12
+appsettings.Development.json
+appsettings.Local.json
+
+# Test / tooling output
+TestResults/
+
+# Claude Code local session state
+.claude/

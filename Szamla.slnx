@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Szamla.Api/Szamla.Api.csproj" />
+    <Project Path="src/Szamla.Application/Szamla.Application.csproj" />
+    <Project Path="src/Szamla.Domain/Szamla.Domain.csproj" />
+    <Project Path="src/Szamla.Infrastructure/Szamla.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Szamla.Api.Tests/Szamla.Api.Tests.csproj" />
+    <Project Path="tests/Szamla.Application.Tests/Szamla.Application.Tests.csproj" />
+    <Project Path="tests/Szamla.Domain.Tests/Szamla.Domain.Tests.csproj" />
+    <Project Path="tests/Szamla.Infrastructure.Tests/Szamla.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-szamla}
+      POSTGRES_USER: ${POSTGRES_USER:-szamla}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?A POSTGRES_PASSWORD kötelező, állítsd be a .env fájlban}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-szamla} -d ${POSTGRES_DB:-szamla}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Szamla.Api.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-szamla};Username=${POSTGRES_USER:-szamla};Password=${POSTGRES_PASSWORD}"
+      Jwt__Issuer: ${JWT_ISSUER:-Szamla}
+      Jwt__Audience: ${JWT_AUDIENCE:-Szamla.Client}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?A JWT_SIGNING_KEY kötelező, állítsd be a .env fájlban (32+ bájtos, Base64-kódolt kulcs)}
+      Cors__AllowedOrigins__0: ${FRONTEND_ORIGIN:-http://localhost:5173}
+    ports:
+      - "8080:8080"
+
+  # A frontend szolgáltatás a 6. fázisban (frontend) kerül ide, amikor a React alkalmazás elkészül.
+
+volumes:
+  postgres-data:

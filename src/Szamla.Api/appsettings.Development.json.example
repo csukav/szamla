@@ -1,0 +1,11 @@
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=localhost;Port=5432;Database=szamla;Username=szamla;Password=szamla_dev_only"
+  },
+  "Jwt": {
+    "SigningKey": "ZK2RhfTEd5JZ5VJatJE4booBl9NlB14oRFdsqUAeVvg="
+  },
+  "Cors": {
+    "AllowedOrigins": [ "http://localhost:5173" ]
+  }
+}
