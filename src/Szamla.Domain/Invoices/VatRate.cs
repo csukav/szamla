@@ -16,17 +16,18 @@ public sealed class VatRate : IEquatable<VatRate>
 {
     private static readonly decimal[] AllowedPercentages = [0.27m, 0.18m, 0.05m, 0.00m];
 
-    public VatRateKind Kind { get; }
+    public VatRateKind Kind { get; private set; }
 
-    public decimal? Percentage { get; }
+    public decimal? Percentage { get; private set; }
 
-    public VatExemptionReason? ExemptionReason { get; }
+    public VatExemptionReason? ExemptionReason { get; private set; }
 
-    private VatRate(VatRateKind kind, decimal? percentage, VatExemptionReason? exemptionReason)
+    // Parameterless + private setters, not a constructor taking all three: EF Core's
+    // ComplexProperty materialization needs a constructor it can bind purely from mapped
+    // properties, and a private constructor here wasn't picked up as one (see Invoice's
+    // remarks on the same constraint for owned/complex types).
+    private VatRate()
     {
-        Kind = kind;
-        Percentage = percentage;
-        ExemptionReason = exemptionReason;
     }
 
     public static VatRate OfPercentage(decimal percentage)
@@ -37,10 +38,11 @@ public sealed class VatRate : IEquatable<VatRate>
                 "Csak a 27%, 18%, 5% vagy 0% ÁFA-kulcs támogatott.");
         }
 
-        return new VatRate(VatRateKind.Percentage, percentage, null);
+        return new VatRate { Kind = VatRateKind.Percentage, Percentage = percentage };
     }
 
-    public static VatRate Exempt(VatExemptionReason reason) => new(VatRateKind.Exempt, null, reason);
+    public static VatRate Exempt(VatExemptionReason reason) =>
+        new() { Kind = VatRateKind.Exempt, ExemptionReason = reason };
 
     /// <summary>True when no VAT is payable — either an exemption, or the 0% rate.</summary>
     public bool IsZeroLiability => Kind == VatRateKind.Exempt || Percentage == 0.00m;

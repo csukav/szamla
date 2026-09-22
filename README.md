@@ -9,15 +9,17 @@ The UI and invoice documents are Hungarian, with the domain layer built for late
 
 ## Status
 
-Phase 3 of the plan ("Domain"): the invoicing domain model — Invoice, InvoiceLine, Partner,
-Money, VAT calculation, sequential numbering. See [Phase 2 notes](#phase-2-notes) and
-[Phase 3 notes](#phase-3-notes) below for what's in place and what's deliberately deferred.
+Phase 4 of the plan ("Számla-életciklus"): invoice draft → finalize → storno/modification,
+persistence, audit logging, and PDF generation. See [Phase 2](#phase-2-notes),
+[Phase 3](#phase-3-notes) and [Phase 4](#phase-4-notes) notes below for what's in place and
+what's deliberately deferred.
 
-Verified end-to-end against real PostgreSQL (Docker): all 74 tests pass (`dotnet test`,
+Verified end-to-end against real PostgreSQL (Docker): all 96 tests pass (`dotnet test`,
 including the Testcontainers-backed ones — among them a 50-way-concurrent test proving the
-invoice numbering never collides or skips), the migrations apply cleanly, and `docker compose up
---build` produces a working API container — register-tenant, login and health checks all
-confirmed with `curl` against the running container.
+invoice numbering never collides or skips), the migrations apply cleanly, and a full HTTP flow
+against the Dockerized API was confirmed with `curl`: register-tenant → login → create partner →
+create invoice series → create draft invoice → finalize → storno → finalize the storno → list →
+fetch as JSON and as PDF.
 
 ## Solution layout
 
@@ -160,6 +162,67 @@ Deliberately deferred to Phase 4 ("Számla-életciklus"):
 - Persistence (EF mapping, migrations, tenant query filters) for `Invoice`, `InvoiceLine`, and
   `Partner` — only the numbering infrastructure needed a real database this phase.
 - Audit logging and PDF generation.
+
+## Phase 4 notes
+
+What's built:
+- **Persistence for Invoice/InvoiceLine/Partner** (deferred from Phase 3): `IssuerSnapshot`/
+  `PartnerSnapshot`/`Money` are mapped via EF Core's `ComplexProperty` (the value-type-friendly
+  feature introduced in EF8 — plain `OwnsOne`/`OwnsMany` reject `Money` outright since it's a
+  struct). `InvoiceLine` is mapped as a **regular entity** with a shadow FK back to `Invoice`,
+  not as an EF Core owned type: owned types can't currently host `ComplexProperty` members, which
+  every Money-typed property on a line needs. `Partner` and `InvoiceSeries` both get the
+  `HasQueryFilter` tenant isolation `Users` was deliberately excluded from in Phase 2 — proven by
+  `InvoicePersistenceTests`.
+- **Invoice lifecycle** on the aggregate itself: `ReplaceLines`/`UpdateHeader` (draft-only),
+  `Finalize` (assigns the number, irreversible), and the `CreateStorno`/`CreateModification`
+  static factories, all enforced structurally (`EnsureDraft()` throws once `Status` is
+  `Finalized` — there's no code path back to Draft).
+- **Two real EF Core bugs found and fixed** while wiring the above up, both regression-tested:
+  1. Editing a draft's lines (`ReplaceDraftInvoiceLinesCommandHandler`) generated an `UPDATE`
+     against a row that had never been `INSERT`ed, because `InvoiceLine`'s key is a
+     client-assigned `Guid` — reached only through navigation fixup on an already-tracked
+     `Invoice`, a brand new line looks identical to "existing row, just edited" to EF Core. Fixed
+     by adding lines/removing lines through `IApplicationDbContext.InvoiceLines` explicitly
+     instead of relying on graph-fixup inference (see the interface's doc comment).
+  2. `Invoice.CreateStorno`/`CreateModification` passed the *original's own* `Issuer`/`Partner`
+     instances to the new invoice. Since those are owned complex types keyed by their owning
+     Invoice's id, sharing one instance between two Invoice rows threw
+     `"...is part of a key and so cannot be modified..."`. Fixed with `original.Issuer with { }`
+     (records' copy syntax) — regression-tested in `InvoiceTests` via `ReferenceEquals`.
+- **Audit logging**: `AuditSaveChangesInterceptor`, an EF Core `SaveChangesInterceptor` that
+  writes one `AuditLog` row (who via the JWT's claims, when, what entity/id, before/after JSON of
+  scalar properties) per Added/Modified/Deleted change to `Tenant`/`Partner`/`Invoice`/
+  `InvoiceSeries`, in the *same* `SaveChanges` call as the change itself — proven by
+  `AuditSaveChangesInterceptorTests`. ASP.NET Core Identity's own tables are deliberately excluded
+  (not "business data," and every login would otherwise spam the log via `RefreshToken` rotation).
+- **Application layer**: CQRS commands/queries for Partners (Create/Update/Get/List) and Invoices
+  (CreateDraft/ReplaceLines/Finalize/CreateStorno/CreateModification/Get/List), plus
+  CreateInvoiceSeries. `FinalizeInvoiceCommandHandler` ties the number generator to the invoice's
+  chosen series and its `IssueDate.Year`.
+- **API**: `PartnersController`, `InvoicesController`, `InvoiceSeriesController` — see the
+  endpoint list in the Phase 1 architecture notes (all now real, wired to the handlers above).
+  `GET /api/invoices/{id}/pdf?copy=true` returns the "MÁSOLAT"-watermarked copy.
+- **PDF generation**: `InvoicePdfGenerator` (QuestPDF) renders the issuer/partner blocks, dates,
+  line-item table, the mandatory per-VAT-rate breakdown table, and totals (with the HUF-converted
+  VAT figure for foreign-currency invoices). This is a functional, unbranded MVP layout — **a
+  legal completeness review of the exact required wording and any case-specific mandatory fields
+  is still owed**, consistent with not trusting memory on legal specifics; see the doc comment on
+  `InvoicePdfGenerator`.
+
+Role-based authorization: mutating endpoints (create/edit/finalize/storno/modify) require
+`Roles.CanWrite` (Owner/Admin/Invoicer — not ReadOnly/"csak olvasó"); invoice-series setup
+requires the narrower `Roles.CanManageSettings` (Owner/Admin only). Reads stay open to any
+authenticated role. This relies on ASP.NET Core's own `[Authorize(Roles = ...)]` middleware, so
+it isn't covered by a dedicated automated test here — there's no "invite a ReadOnly user" endpoint
+yet to set one up with in a test, and the framework mechanism itself isn't code this project owns.
+
+Deliberately deferred:
+- Delete endpoints, list pagination/filtering beyond a basic status filter and name search.
+- Email sending and the 23/2014 NGM tax-audit data export — both explicitly out of this phase's
+  scope already (email is a Phase 5 background job per the brief; the export format needs the
+  legal verification the brief itself calls for).
+- `Product` (termék törzs) — still not needed; `InvoiceLine` takes free-text description/price.
 
 ### Licensing flags for the maintainer to keep an eye on
 

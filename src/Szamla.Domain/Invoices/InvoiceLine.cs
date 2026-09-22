@@ -29,14 +29,32 @@ public sealed class InvoiceLine
 
     public static InvoiceLine Create(string description, decimal quantity, string unit, Money netUnitPrice, VatRate vatRate)
     {
+        if (quantity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "A mennyiségnek pozitívnak kell lennie.");
+        }
+
+        return Build(description, quantity, unit, netUnitPrice, vatRate);
+    }
+
+    /// <summary>
+    /// Builds the mirror-image line for a storno invoice: same description/unit/price/rate, but
+    /// negated quantity (and therefore negated net/VAT/gross amounts) — the standard Hungarian
+    /// accounting convention for fully cancelling out an invoice line.
+    /// </summary>
+    public static InvoiceLine CreateStornoMirror(InvoiceLine original) =>
+        Build(original.Description, -original.Quantity, original.Unit, original.NetUnitPrice, original.VatRate);
+
+    private static InvoiceLine Build(string description, decimal quantity, string unit, Money netUnitPrice, VatRate vatRate)
+    {
         if (string.IsNullOrWhiteSpace(description))
         {
             throw new ArgumentException("A tétel megnevezése kötelező.", nameof(description));
         }
 
-        if (quantity <= 0)
+        if (quantity == 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "A mennyiségnek pozitívnak kell lennie.");
+            throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "A mennyiség nem lehet nulla.");
         }
 
         if (string.IsNullOrWhiteSpace(unit))

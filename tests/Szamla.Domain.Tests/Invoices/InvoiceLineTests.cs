@@ -52,4 +52,18 @@ public class InvoiceLineTests
 
         act.Should().Throw<ArgumentException>();
     }
+
+    [Fact]
+    public void CreateStornoMirror_NegatesQuantityAndAllComputedAmounts()
+    {
+        var original = InvoiceLine.Create("Tanácsadás", 2m, "óra", new Money(10000m, "HUF"), VatRate.OfPercentage(0.27m));
+
+        var mirror = InvoiceLine.CreateStornoMirror(original);
+
+        mirror.Quantity.Should().Be(-2m);
+        mirror.NetAmount.Should().Be(new Money(-20000m, "HUF"));
+        mirror.VatAmount.Should().Be(new Money(-5400m, "HUF"));
+        mirror.GrossAmount.Should().Be(new Money(-25400m, "HUF"));
+        (original.NetAmount + mirror.NetAmount).Should().Be(Money.Zero("HUF"));
+    }
 }
