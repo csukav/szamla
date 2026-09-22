@@ -2,25 +2,28 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Szamla.Application.Common.Interfaces;
+using Szamla.Domain.Invoices;
 using Szamla.Domain.Tenants;
 using Szamla.Infrastructure.Identity;
+using Szamla.Infrastructure.Invoicing;
 
 namespace Szamla.Infrastructure.Persistence;
 
 public class ApplicationDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>, IApplicationDbContext
 {
-    // Accepted (not yet used) so tenant-scoped business entities added from Phase 3 on
-    // (Partner, Product, Invoice, ...) can add HasQueryFilter(e => e.TenantId == currentTenantService.TenantId)
-    // without another constructor change. See the comment on the ApplicationUser mapping below
-    // for why Users itself is deliberately excluded from that pattern.
+    private readonly ICurrentTenantService _currentTenantService;
+
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, ICurrentTenantService currentTenantService)
         : base(options)
     {
+        _currentTenantService = currentTenantService;
     }
 
     public DbSet<Tenant> Tenants => Set<Tenant>();
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
+    public DbSet<InvoiceSeries> InvoiceSeries => Set<InvoiceSeries>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -52,9 +55,28 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
             // through this same DbSet — both would silently break under a global tenant filter
             // (login would find nobody; uniqueness would only be enforced within Guid.Empty).
             // Tenant isolation for Users is instead enforced explicitly at the call site (e.g.
-            // GET /api/users filters by the current tenant) — see UsersTenantIsolationTests.
+            // GET /api/users filters by the current tenant) — see TenantIsolationTests.
 
             b.HasOne<Tenant>().WithMany().HasForeignKey(u => u.TenantId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<InvoiceSeries>(b =>
+        {
+            b.ToTable("InvoiceSeries");
+            b.HasKey(s => s.Id);
+            b.Property(s => s.Prefix).HasMaxLength(10).IsRequired();
+            b.HasIndex(s => new { s.TenantId, s.Prefix }).IsUnique();
+            b.HasQueryFilter(s => s.TenantId == _currentTenantService.TenantId);
+        });
+
+        builder.Entity<InvoiceNumberCounter>(b =>
+        {
+            b.ToTable("InvoiceNumberCounters");
+            b.HasKey(c => new { c.TenantId, c.SeriesId, c.Year });
+
+            // No tenant query filter here, deliberately: this table is only ever touched through
+            // the raw atomic UPSERT in InvoiceNumberGenerator, never via LINQ, so a filter here
+            // would just be dead configuration.
         });
 
         builder.Entity<RefreshToken>(b =>

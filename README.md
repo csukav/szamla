@@ -9,14 +9,15 @@ The UI and invoice documents are Hungarian, with the domain layer built for late
 
 ## Status
 
-Phase 2 of the plan ("alapok"): solution structure, Docker, database, authentication,
-multi-tenancy foundation, CI. See [Phase 2 notes](#phase-2-notes) below for what's in place and
-what's deliberately deferred to later phases.
+Phase 3 of the plan ("Domain"): the invoicing domain model — Invoice, InvoiceLine, Partner,
+Money, VAT calculation, sequential numbering. See [Phase 2 notes](#phase-2-notes) and
+[Phase 3 notes](#phase-3-notes) below for what's in place and what's deliberately deferred.
 
-Verified end-to-end against real PostgreSQL (Docker): all 17 tests pass (`dotnet test`,
-including the Testcontainers-backed ones), the `InitialCreate` migration applies cleanly, and
-`docker compose up --build` produces a working API container — register-tenant, login and
-health checks all confirmed with `curl` against the running container.
+Verified end-to-end against real PostgreSQL (Docker): all 74 tests pass (`dotnet test`,
+including the Testcontainers-backed ones — among them a 50-way-concurrent test proving the
+invoice numbering never collides or skips), the migrations apply cleanly, and `docker compose up
+--build` produces a working API container — register-tenant, login and health checks all
+confirmed with `curl` against the running container.
 
 ## Solution layout
 
@@ -118,6 +119,47 @@ Deliberately deferred:
   Phase 5, once the official XSDs and interface description have been reviewed.
 - ASP.NET Core Data Protection for encrypting NAV technical-user secrets is deferred to Phase 5,
   when there's something to encrypt.
+
+## Phase 3 notes
+
+What's built (all in `Szamla.Domain`, unless noted):
+- `Money` — a currency-tagged decimal value object; arithmetic between different currencies
+  throws `CurrencyMismatchException` rather than silently mixing them.
+- `RoundingPolicy` — the single, documented place for every rounding rule: line/VAT-rate amounts
+  keep 2 decimals; only the invoice's HUF grand total (and the HUF-converted VAT amount on
+  foreign-currency invoices) round to whole forints, using away-from-zero ("kerekítés") rounding,
+  not banker's rounding.
+- `VatRate` / `VatExemptionReason` — either a percentage (27/18/5/0%) or one of the exemption
+  reasons named in the brief (AAM, TAM, EUE, EUFAD37, belföldi fordított adózás, területi
+  hatályon kívüliség). **The exact NAV Online Számla XSD field/enum names for these are not yet
+  verified** — that happens in Phase 5 against the official schema; see the doc comment on
+  `VatExemptionReason`.
+- `InvoiceLine` — computes net/VAT/gross per line from quantity × unit price and a `VatRate`.
+- `Invoice` — the aggregate: header, immutable `IssuerSnapshot`/`PartnerSnapshot` (so a later edit
+  to the tenant's or partner's profile can't retroactively change an issued invoice), lines,
+  computed totals, and the mandatory per-VAT-rate breakdown table (`VatSummary`). This phase
+  covers the data shape and VAT arithmetic only — `Status`/`Number` exist per the agreed data
+  model, but the lifecycle transitions that set them (draft → finalize, storno/modification
+  referencing the original) are Phase 4 work, once there's a persistence layer to drive them.
+- `Partner` — buyer entity with the domestic/EU/third-country split from the brief; a domestic,
+  non-private-person buyer requires a tax id (further, threshold-based mandatory-tax-number rules
+  are noted but not yet enforced — flagged for legal verification alongside Phase 4).
+- **Sequential numbering**, proven concurrency-safe: `InvoiceSeries` (Domain) plus
+  `InvoiceNumberCounter` and `InvoiceNumberGenerator` (Infrastructure), which allocates numbers
+  via a single atomic PostgreSQL `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` — no explicit
+  lock or transaction needed, Postgres serializes concurrent writers on the same counter row by
+  itself. `InvoiceNumberGeneratorConcurrencyTests` fires 50 concurrent allocation requests at one
+  (tenant, series, year) and asserts the results are exactly `{1..50}` — no duplicates, no gaps.
+- `Product` (termék/szolgáltatás törzs) was **not** added this phase — it wasn't named in the
+  Phase 3 scope ("számla, tétel, partner, Money, ÁFA-számítás, sorszámozás") and `InvoiceLine`
+  doesn't need it to compute correctly; it'll come with the catalog feature alongside Phase 4.
+
+Deliberately deferred to Phase 4 ("Számla-életciklus"):
+- Draft → finalize → storno/modification transitions on `Invoice` (the fields exist; the methods
+  that mutate them don't yet).
+- Persistence (EF mapping, migrations, tenant query filters) for `Invoice`, `InvoiceLine`, and
+  `Partner` — only the numbering infrastructure needed a real database this phase.
+- Audit logging and PDF generation.
 
 ### Licensing flags for the maintainer to keep an eye on
 

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Szamla.Application.Common.Interfaces;
 using Szamla.Infrastructure.Identity;
+using Szamla.Infrastructure.Invoicing;
 using Szamla.Infrastructure.Multitenancy;
 using Szamla.Infrastructure.Persistence;
 
@@ -33,6 +34,7 @@ public static class DependencyInjection
         services.AddSingleton<JwtTokenService>();
         services.AddSingleton<IJwtTokenGenerator>(sp => sp.GetRequiredService<JwtTokenService>());
         services.AddScoped<RefreshTokenIssuer>();
+        services.AddScoped<IInvoiceNumberGenerator, InvoiceNumberGenerator>();
 
         services
             .AddIdentityCore<ApplicationUser>(options =>
