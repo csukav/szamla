@@ -63,11 +63,12 @@ public sealed record InvoiceSummaryDto(
     InvoiceStatus Status,
     string? Number,
     DateOnly IssueDate,
+    DateOnly PaymentDueDate,
     string PartnerName,
     decimal GrossTotal,
     string Currency)
 {
     public static InvoiceSummaryDto FromDomain(Invoice invoice) => new(
-        invoice.Id, invoice.Type, invoice.Status, invoice.Number, invoice.IssueDate,
+        invoice.Id, invoice.Type, invoice.Status, invoice.Number, invoice.IssueDate, invoice.PaymentDueDate,
         invoice.Partner.Name, invoice.GrossTotal.Amount, invoice.Currency);
 }
